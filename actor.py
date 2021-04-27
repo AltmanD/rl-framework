@@ -56,10 +56,10 @@ def run_one_agent(index, args, unknown_args, actor_status):
 
     # Configure logging only in one process
     if index == 0:
-        logger.configure(str(args.log_path))
+        logger.configure(str(args.log_path), influx=True)
         save_yaml_config(args.exp_path / 'config.yaml', args, 'actor', agent)
     else:
-        logger.configure(str(args.log_path), format_strs=[])
+        logger.configure(str(args.log_path), influx=False, format_strs=[])
 
     # Create local queues for collecting data
     transitions = []  # A list to store raw transitions within an episode
@@ -120,6 +120,8 @@ def run_one_agent(index, args, unknown_args, actor_status):
 
             if num_episodes > 0:
                 # Log information
+                logger.write_influx("reward", mean_10ep_reward)
+                logger.write_influx("produce", args.max_steps_per_update // send_data_interval)
                 logger.record_tabular("iteration", (step + 1) // args.max_steps_per_update)
                 logger.record_tabular("steps", step)
                 logger.record_tabular("episodes", len(episode_rewards))

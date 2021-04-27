@@ -5,6 +5,7 @@ import time
 from collections import defaultdict, deque
 from multiprocessing.managers import BaseManager
 from typing import Dict, List
+from utils import logger
 
 import numpy as np
 
@@ -98,14 +99,20 @@ class MultiprocessingMemPool(MemPool):
     def record_throughput(cls, obj: MultiprocessingMemPool, interval=10):
         """Print receiving and consuming periodically"""
 
+        logger.configure(dir=False, influx=True)
         while True:
             obj._reset_receiving_data_throughput()
             obj._reset_consuming_data_throughput()
 
             time.sleep(interval)
 
-            print(f'Receiving FPS: {obj._get_receiving_data_throughput() / interval:.2f}, '
-                  f'Consuming FPS: {obj._get_consuming_data_throughput() / interval:.2f}')
+            Receiving = obj._get_receiving_data_throughput() / interval
+            Consuming = obj._get_consuming_data_throughput() / interval
+            logger.write_influx("receive", Receiving)
+            logger.write_influx("consume", Consuming)
+            
+            print(f'Receiving FPS: {Receiving:.2f}, '
+                  f'Consuming FPS: {Consuming:.2f}')
 
 
 class MemPoolManager(BaseManager):

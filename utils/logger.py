@@ -9,6 +9,7 @@ import tempfile
 import time
 from collections import defaultdict
 from contextlib import contextmanager
+from influxdb import InfluxDBClient
 
 DEBUG = 10
 INFO = 20
@@ -200,6 +201,9 @@ def make_output_format(format, ev_dir, log_suffix=''):
 # API
 # ================================================================
 
+def write_influx(type, value):
+    get_current_influx().write_data(type, value)
+
 def logkv(key, val):
     """
     Log a value of some diagnostic
@@ -318,11 +322,17 @@ def get_current():
 
     return Logger.CURRENT
 
+def get_current_influx():
+    if Logger.INFLUX is None:
+        _configure_default_logger()
+    return Logger.INFLUX
 
 class Logger(object):
     DEFAULT = None  # A logger with no output files. (See right below class definition)
     # So that you can still log to the terminal without setting up any output files
     CURRENT = None  # Current logger being used by the free functions above
+    # current influxdb link
+    INFLUX = None
 
     def __init__(self, dir, output_formats, comm=None):
         self.name2val = defaultdict(float)  # values this iteration
@@ -396,10 +406,16 @@ def get_rank_without_mpi_import():
     return 0
 
 
-def configure(dir=None, format_strs=None, comm=None, log_suffix=''):
+def configure(dir=None, influx=False, format_strs=None, comm=None, log_suffix=''):
     """
     If comm is provided, average all numerical stats across that comm
     """
+    if influx:
+        if 'ACT' in dir:
+            Logger.INFLUX = InfluxClient('actor')
+        elif 'LEA' in dir:
+            Logger.INFLUX = InfluxClient('learner')
+
     if dir is None:
         dir = os.getenv('LOGDIR')
     if dir is None:
@@ -448,6 +464,48 @@ def scoped_configure(dir=None, format_strs=None, comm=None):
         Logger.CURRENT.close()
         Logger.CURRENT = prevlogger
 
+
+class InfluxClient(InfluxDBClient):
+    def __init__(self, agent_type, host='192.168.4.10', port='8086', username='admin', password='admin', database='mydb'):
+        super().__init__(host=host, port=port, username=username,
+                         password=password, database=database)
+        self.data = [
+            {
+                "measurement": None,
+                "tags": {
+                    'type': None
+                },
+                "fields": {
+                    "value": None
+                }
+            }
+        ]
+        self.agent_type = agent_type
+
+        if self.agent_type == 'actor':
+            self.data[0]['measurement'] = 'actor'
+            super().drop_measurement('actor')
+            super().drop_measurement('actor-hardware')
+        elif self.agent_type == 'learner':
+            self.data[0]['measurement'] = 'learner'
+            super().drop_measurement('learner')
+            super().drop_measurement('learner-hardware')
+
+    def write_data(self, type, value):
+        self.data[0]['tags']['type'] = type
+        self.data[0]['fields']['value'] = float(value)
+        super().write_points(self.data)
+
+    def send_hardware_Info(self):
+        if self.agent_type == 'actor':
+            pass
+            # self.write(self.agent_type + '-hardware',{'type': 'cpu-usage'}, psutil.cpu_percent())
+        elif self.agent_type == 'learner':
+            pass
+            # TODO：get GPU info
+            # self.write(self.agent_type + '-hardware',{'type': 'gpu-memory'}, GPUtil.getGPUs()[0].memoryUtil)
+            # self.write(self.agent_type + '-hardware',
+            #            {'type': 'gpu-utilization'}, )
 
 # ================================================================
 
